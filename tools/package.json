@@ -1,0 +1,13 @@
+{
+  "name": "hasanqaysi-tools",
+  "private": true,
+  "type": "module",
+  "description": "Local build tools for hasanqaysi.dev (never deployed: node_modules is gitignored).",
+  "scripts": {
+    "dither": "bun dither.ts",
+    "contrast": "bun contrast.ts"
+  },
+  "dependencies": {
+    "sharp": "0.33.5"
+  }
+}

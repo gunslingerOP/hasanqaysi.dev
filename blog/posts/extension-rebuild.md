@@ -3,6 +3,8 @@ title: Rebuilding a production browser extension
 date: 2026-03-15
 dek: What I'd tell myself before starting a ground-up extension rebuild.
 tags: [frontend, chrome]
+plate: ring-dots
+scene: rider
 ---
 
 A ground-up rebuild of a shipping product is a trust exercise. People rely on the old thing every day, so the new one has to be better the moment it lands — not eventually.

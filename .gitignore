@@ -1,0 +1,8 @@
+# Local tooling and editor state — never deploy (GitHub Pages serves every committed file)
+.claude/
+node_modules/
+.DS_Store
+CLAUDE.md
+# Design workspace: the dev specimen pages and the working design notes stay local
+design/
+DESIGN.md

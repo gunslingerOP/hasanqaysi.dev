@@ -1,19 +1,26 @@
 #!/usr/bin/env python3
-"""Static blog generator for hasanqaysi.dev/blog.
+"""Static blog generator for hasanqaysi.dev/blog, in the Field Manual design (DESIGN.md).
 
-Reads markdown posts from blog/posts/*.md (frontmatter + body) and emits
-static, SEO-friendly HTML:
+Reads markdown posts from blog/posts/*.md (frontmatter + body) and emits static HTML:
   - blog/index.html                  (the listing)
   - blog/<slug>/index.html           (one crawlable page per post, own OG tags)
+  - blog/<slug>/card.png             (its social card, made once by tools/card.ts; --cards remakes them)
   - blog/rss.xml                     (feed)
   - sitemap.xml                      (root, includes homepage + posts)
 
-No runtime framework. The only JS on a page is a tiny reading-progress bar.
-Design tokens are ported faithfully from the designer's handoff.
+Pages use the one stylesheet (/assets/field.css) and the Press atmosphere (/assets/js/light.js).
+
+Frontmatter: title, date (YYYY-MM-DD), dek, tags: [a, b], and optionally
+  scene: landscape-plants     an image in assets/img/art/ shown above the title
+  plate: cube-dots            a plate in assets/img/plates/: header art when there is no scene, and the social card
+Body: paragraphs, ## headings, > quotes, - lists, ``` code fences (with a language), *italic*, **bold**,
+`code`, [links](url), and figures from tools/figures/<name>.json:
+  ::figure <name> | caption text
 
 Add a post: drop a new file in blog/posts/<slug>.md, then run:  python3 build_blog.py
+Figures and social cards need bun (tools/ uses it), with `bun install` run once in tools/.
 """
-import os, re, html, datetime, glob, xml.sax.saxutils as sx
+import os, re, html, datetime, glob, json, subprocess, sys, xml.sax.saxutils as sx
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 POSTS_DIR = os.path.join(ROOT, "blog", "posts")
@@ -21,104 +28,17 @@ BLOG_DIR = os.path.join(ROOT, "blog")
 SITE = "https://hasanqaysi.dev"
 OG_IMAGE = SITE + "/og-image.png"
 AUTHOR = "Hasan Al-qaysi"
+EMAIL = "hasanaqeel38@gmail.com"
 
-FONTS = ('<link rel="preconnect" href="https://fonts.googleapis.com">'
-         '<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>'
-         '<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">')
+FAVICON = ("<link rel=\"icon\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E"
+           "%3Crect width='32' height='32' rx='8' fill='%23B0E0E6'/%3E%3Ccircle cx='16' cy='16' r='7' fill='%23000'/%3E%3C/svg%3E\">")
 
-FAVICON = ("<link rel=\"icon\" href=\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' "
-           "viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230A0C0E'/%3E%3Crect x='9' "
-           "y='9' width='14' height='14' rx='3' fill='%23C6F94E'/%3E%3C/svg%3E\">")
-
-CSS = """*{box-sizing:border-box}
-html{scroll-behavior:smooth}
-body{margin:0;background:#0A0C0E;color:#ECEFF1;font-family:'Geist','Helvetica Neue',Arial,sans-serif;-webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;overflow-x:hidden}
-::selection{background:#C6F94E;color:#0A0C0E}
-a{color:inherit;text-decoration:none}
-a:focus-visible,button:focus-visible{outline:2px solid #C6F94E;outline-offset:3px;border-radius:3px}
-@keyframes revealIn{from{opacity:0;transform:translateY(18px)}to{opacity:1;transform:none}}
-.reveal{animation:revealIn .7s cubic-bezier(.2,.7,.2,1)}
-.grid-bg{position:fixed;inset:0;z-index:0;pointer-events:none;background-image:linear-gradient(rgba(255,255,255,0.03) 1px,transparent 1px),linear-gradient(90deg,rgba(255,255,255,0.03) 1px,transparent 1px);background-size:64px 64px;-webkit-mask-image:radial-gradient(120% 90% at 70% 0%,#000 0%,rgba(0,0,0,0.35) 55%,transparent 100%);mask-image:radial-gradient(120% 90% at 70% 0%,#000 0%,rgba(0,0,0,0.35) 55%,transparent 100%)}
-header.nav{position:fixed;top:0;left:0;right:0;z-index:50;display:flex;align-items:center;justify-content:space-between;gap:16px;padding:16px clamp(20px,5vw,64px);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);background:linear-gradient(to bottom,rgba(10,12,14,0.92),rgba(10,12,14,0))}
-.brand{font-family:'Geist Mono',monospace;font-size:0.74rem;letter-spacing:0.12em;color:#ECEFF1;display:flex;align-items:center;gap:10px}
-.brand i{width:8px;height:8px;border-radius:2px;background:#C6F94E;display:inline-block}
-.nav nav{display:flex;flex-wrap:wrap;gap:clamp(14px,2.4vw,30px);font-family:'Geist Mono',monospace;font-size:0.72rem;letter-spacing:0.1em;color:#93999E}
-.nav nav a{transition:color .2s}
-.nav nav a:hover{color:#ECEFF1}
-.nav nav a.active{color:#C6F94E}
-.progress{position:fixed;top:0;left:0;right:0;height:2px;z-index:60;background:transparent}
-.progress>div{height:100%;width:0%;background:#C6F94E;box-shadow:0 0 10px #C6F94E;transition:width .08s linear}
-footer.foot{position:relative;z-index:1;border-top:1px solid rgba(255,255,255,0.06)}
-footer.foot .inner{max-width:940px;margin:0 auto;padding:30px clamp(20px,5vw,48px);display:flex;flex-wrap:wrap;justify-content:space-between;gap:14px;font-family:'Geist Mono',monospace;font-size:0.7rem;letter-spacing:0.1em;color:#6E767C}
-footer.foot a{color:#ECEFF1;transition:color .2s}
-footer.foot a:hover{color:#C6F94E}
-/* listing */
-.list-wrap{position:relative;z-index:1;max-width:940px;margin:0 auto;padding:clamp(120px,18vh,180px) clamp(20px,5vw,48px) clamp(70px,11vh,120px)}
-.list-head{margin-bottom:clamp(48px,7vh,80px);max-width:640px}
-.eyebrow{font-family:'Geist Mono',monospace;font-size:0.78rem;letter-spacing:0.2em;color:#C6F94E;display:flex;align-items:center;gap:12px;margin-bottom:24px}
-.eyebrow i{width:7px;height:7px;border-radius:50%;background:#C6F94E;box-shadow:0 0 12px #C6F94E;display:inline-block}
-.list-head h1{margin:0;font-size:clamp(2.5rem,6.5vw,4.5rem);line-height:0.98;letter-spacing:-0.03em;font-weight:600}
-.list-head p{margin:26px 0 0;font-size:clamp(1.05rem,1.5vw,1.25rem);line-height:1.55;color:#93999E;max-width:50ch;text-wrap:pretty}
-.rows{display:flex;flex-direction:column}
-.row{display:block;padding:clamp(26px,3.4vw,38px) 0;border-top:1px solid rgba(255,255,255,0.09);transition:padding-left .3s ease}
-.row:hover{padding-left:14px}
-.row:hover .row-title{color:#C6F94E}
-.row-end{border-top:1px solid rgba(255,255,255,0.09)}
-.meta{display:flex;flex-wrap:wrap;align-items:center;gap:14px;font-family:'Geist Mono',monospace;font-size:0.7rem;letter-spacing:0.1em;color:#6E767C;margin-bottom:14px}
-.meta .sep{color:rgba(255,255,255,0.18)}
-.pill{color:#C6F94E;border:1px solid rgba(198,249,78,0.4);border-radius:5px;padding:3px 8px}
-.row-title{margin:0;font-size:clamp(1.5rem,3vw,2.3rem);line-height:1.12;letter-spacing:-0.025em;font-weight:600;color:#ECEFF1;transition:color .25s}
-.row-dek{margin:12px 0 0;font-size:clamp(1rem,1.4vw,1.15rem);line-height:1.5;color:#93999E;max-width:60ch;text-wrap:pretty}
-.row-foot{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-top:18px}
-.chip{font-family:'Geist Mono',monospace;font-size:0.66rem;letter-spacing:0.04em;color:#7F868B;padding:4px 9px;border:1px solid rgba(255,255,255,0.1);border-radius:6px}
-.read{margin-left:auto;font-family:'Geist Mono',monospace;font-size:0.72rem;letter-spacing:0.06em;color:#C6F94E}
-/* article */
-.art{position:relative;z-index:1;max-width:720px;margin:0 auto;padding:clamp(110px,16vh,160px) clamp(20px,5vw,40px) clamp(80px,12vh,140px)}
-.back{display:inline-block;background:none;border:none;cursor:pointer;font-family:'Geist Mono',monospace;font-size:0.74rem;letter-spacing:0.08em;color:#93999E;padding:0;margin-bottom:36px;transition:color .2s}
-.back:hover{color:#C6F94E}
-.art h1{margin:0;font-size:clamp(2rem,5vw,3.3rem);line-height:1.06;letter-spacing:-0.03em;font-weight:600;text-wrap:balance}
-.art .dek{margin:22px 0 0;font-size:clamp(1.2rem,2vw,1.5rem);line-height:1.4;color:#93999E;font-weight:400;text-wrap:pretty}
-.art .tags{display:flex;flex-wrap:wrap;gap:8px;margin:26px 0 0}
-.rule{height:1px;background:rgba(255,255,255,0.09);margin:40px 0}
-.post-h2{margin:2.2em 0 0.7em;font-size:clamp(1.35rem,2.6vw,1.85rem);line-height:1.2;letter-spacing:-0.018em;font-weight:600;color:#ECEFF1}
-.post-p{margin:1.25em 0 0;font-size:1.13rem;line-height:1.78;color:#C5CACE;text-wrap:pretty}
-.post-p code,.post-li code{font-family:'Geist Mono',monospace;font-size:0.92em;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:5px;padding:1px 6px;color:#ECEFF1}
-.post-p a,.post-li a{color:#C6F94E;border-bottom:1px solid rgba(198,249,78,0.35)}
-.post-quote{margin:1.8em 0 0;padding:6px 0 6px 24px;border-left:2px solid #C6F94E;font-size:clamp(1.2rem,2vw,1.45rem);line-height:1.45;letter-spacing:-0.01em;color:#ECEFF1;font-weight:500;text-wrap:pretty}
-.post-ul{margin:1.3em 0 0;padding:0;list-style:none;display:flex;flex-direction:column;gap:12px}
-.post-li{display:flex;gap:13px;font-size:1.1rem;line-height:1.6;color:#C5CACE}
-.post-li .m{color:#C6F94E;flex:none;font-family:'Geist Mono',monospace}
-.codecard{margin:1.7em 0 0;border:1px solid rgba(255,255,255,0.09);border-radius:12px;background:rgba(0,0,0,0.32);overflow:hidden}
-.codebar{display:flex;align-items:center;gap:7px;padding:11px 15px;border-bottom:1px solid rgba(255,255,255,0.07)}
-.codebar i{width:9px;height:9px;border-radius:50%;background:rgba(255,255,255,0.14);display:inline-block}
-.codebar i.lime{background:#C6F94E;opacity:0.55}
-.codecard pre{margin:0;padding:18px 20px;overflow-x:auto;font-family:'Geist Mono',monospace;font-size:0.86rem;line-height:1.7;color:#C5CACE}
-.art-foot{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px}
-.art-foot .btn{background:none;border:1px solid rgba(255,255,255,0.12);border-radius:9px;cursor:pointer;padding:12px 20px;font-family:'Geist Mono',monospace;font-size:0.74rem;letter-spacing:0.08em;color:#ECEFF1;transition:border-color .25s,background .25s}
-.art-foot .btn:hover{border-color:rgba(255,255,255,0.28);background:rgba(255,255,255,0.03)}
-.art-foot .reply{font-family:'Geist Mono',monospace;font-size:0.74rem;letter-spacing:0.06em;color:#C6F94E;transition:opacity .2s}
-.art-foot .reply:hover{opacity:0.7}
-@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}*,*::before,*::after{animation-duration:.001ms!important;animation-iteration-count:1!important;transition-duration:.001ms!important}}"""
-
-PROGRESS_JS = """<script>
-(function(){var b=document.getElementById('pbar');if(!b)return;function u(){var h=document.documentElement,m=(h.scrollHeight-h.clientHeight)||1;b.style.width=Math.min(100,Math.max(0,(h.scrollTop/m)*100))+'%';}window.addEventListener('scroll',u,{passive:true});u();})();
-</script>"""
-
-def nav_html(active):
-    def a(href, label, key):
-        cls = ' class="active"' if key == active else ''
-        return f'<a href="{href}"{cls}>{label}</a>'
-    return ('<header class="nav"><a href="/" class="brand"><i></i>HASAN AL-QAYSI</a>'
-            '<nav>'
-            + a('/#work', 'WORK', 'work')
-            + a('/#about', 'ABOUT', 'about')
-            + a('/blog', 'WRITING', 'writing')
-            + a('/#contact', 'CONTACT', 'contact')
-            + '</nav></header>')
-
-FOOT = ('<footer class="foot"><div class="inner">'
-        '<a href="/">&larr; HASANQAYSI.DEV</a><span>WRITING &middot; 2026</span>'
-        '</div></footer>')
+LANGS = {'ts': 'TypeScript', 'tsx': 'TypeScript', 'js': 'JavaScript', 'jsx': 'JavaScript', 'py': 'Python', 'python': 'Python',
+         'sh': 'Shell', 'bash': 'Shell', 'zsh': 'Shell', 'json': 'JSON', 'sql': 'SQL', 'yaml': 'YAML', 'yml': 'YAML',
+         'html': 'HTML', 'css': 'CSS', 'go': 'Go', 'rust': 'Rust'}
+THEME_EARLY = '<script>try{var t=localStorage.getItem("theme");if(t==="light"||t==="dark")document.documentElement.dataset.theme=t}catch(e){}</script>'  # applies a saved light/dark pick before paint
+THEME_BUTTON = '<button class="theme-toggle" type="button" aria-label="Switch to dark mode"><svg class="moon" viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg><svg class="sun" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.3 5.3l1.6 1.6M17.1 17.1l1.6 1.6M5.3 18.7l1.6-1.6M17.1 6.9l1.6-1.6"/></svg></button>'
+TAGS = {'ai': 'AI', 'llm': 'LLMs', 'b2b-saas': 'B2B SaaS', 'aws': 'AWS'}  # anything else: sentence case
 
 # ---------- markdown ----------
 def parse_front_matter(text):
@@ -144,22 +64,28 @@ def inline(s):
     s = html.escape(s, quote=False)
     s = re.sub(r'`([^`]+)`', lambda m: '<code>' + m.group(1) + '</code>', s)
     s = re.sub(r'\*\*([^*]+)\*\*', lambda m: '<strong>' + m.group(1) + '</strong>', s)
+    s = re.sub(r'(?<![*\w])\*([^*\s][^*]*?)\*(?![*\w])', lambda m: '<em>' + m.group(1) + '</em>', s)
     s = re.sub(r'\[([^\]]+)\]\(([^)]+)\)', lambda m: '<a href="' + m.group(2) + '">' + m.group(1) + '</a>', s)
     return s
 
 def parse_blocks(body):
-    """Returns list of (type, payload). Types: p, h2, quote, list, code."""
+    """Returns list of (type, payload). Types: p, h2, quote, list, code, figure."""
     lines = body.split('\n')
     blocks, i = [], 0
+    starts = ('## ', '> ', '```', '::figure ')
     while i < len(lines):
         line = lines[i]
         if line.strip().startswith('```'):
+            lang = line.strip()[3:].strip()
             buf = []
             i += 1
             while i < len(lines) and not lines[i].strip().startswith('```'):
                 buf.append(lines[i]); i += 1
             i += 1
-            blocks.append(('code', '\n'.join(buf)))
+            blocks.append(('code', (lang, '\n'.join(buf))))
+        elif line.startswith('::figure '):
+            name, _, caption = line[len('::figure '):].partition('|')
+            blocks.append(('figure', (name.strip(), caption.strip()))); i += 1
         elif line.startswith('## '):
             blocks.append(('h2', line[3:].strip())); i += 1
         elif line.startswith('> '):
@@ -176,26 +102,58 @@ def parse_blocks(body):
             i += 1
         else:
             buf = []
-            while i < len(lines) and lines[i].strip() != '' and not lines[i].startswith(('## ', '> ', '```')) and not re.match(r'^[-*] ', lines[i]):
+            while i < len(lines) and lines[i].strip() != '' and not lines[i].startswith(starts) and not re.match(r'^[-*] ', lines[i]):
                 buf.append(lines[i].strip()); i += 1
             blocks.append(('p', ' '.join(buf)))
     return blocks
 
-def render_blocks(blocks):
-    out = []
+def slugify(s):
+    return re.sub(r'[^a-z0-9]+', '-', re.sub(r'<[^>]+>', '', s).lower()).strip('-')
+
+def bun(*args):
+    try:
+        return subprocess.run(['bun', *args], cwd=ROOT, capture_output=True, text=True, check=True).stdout
+    except FileNotFoundError:
+        sys.exit('build_blog.py: figures and social cards need bun (https://bun.sh)')
+    except subprocess.CalledProcessError as e:
+        sys.exit(f'build_blog.py: bun {" ".join(args)} failed:\n{e.stderr}')
+
+def figure_html(name, caption, n, wide):
+    spec = os.path.join('tools', 'figures', name + '.json')
+    if not os.path.exists(os.path.join(ROOT, spec)):
+        sys.exit(f'build_blog.py: no figure spec at {spec}')
+    svg = bun('tools/diagram.ts', spec).strip()
+    cls = 'figure figure--wide' if wide else 'figure'
+    return (f'<figure class="{cls}" data-play><div class="plate plate--scroll">{svg}</div>'
+            f'<figcaption><b>Fig. {n}</b>{inline(caption)}</figcaption></figure>')
+
+def render_blocks(blocks, wide):
+    """Text blocks go inside .prose; figures and code sit beside it, so wide ones can break out."""
+    out, prose, fig, first_p = [], [], 0, True
+    def flush():
+        if prose:
+            out.append('<div class="prose">' + '\n'.join(prose) + '</div>')
+            prose.clear()
     for t, x in blocks:
         if t == 'p':
-            out.append(f'<p class="post-p">{inline(x)}</p>')
+            prose.append(f'<p class="dropcap">{inline(x)}</p>' if first_p else f'<p>{inline(x)}</p>')
+            first_p = False
         elif t == 'h2':
-            out.append(f'<h2 class="post-h2">{inline(x)}</h2>')
+            prose.append(f'<h2 id="{slugify(x)}">{inline(x)}</h2>')
         elif t == 'quote':
-            out.append(f'<blockquote class="post-quote">{inline(x)}</blockquote>')
+            prose.append(f'<blockquote class="pull"><p>{inline(x)}</p></blockquote>')
         elif t == 'list':
-            lis = ''.join(f'<li class="post-li"><span class="m">&rarr;</span><span>{inline(it)}</span></li>' for it in x)
-            out.append(f'<ul class="post-ul">{lis}</ul>')
+            prose.append('<ul>' + ''.join(f'<li>{inline(it)}</li>' for it in x) + '</ul>')
         elif t == 'code':
-            out.append('<div class="codecard"><div class="codebar"><i></i><i></i><i class="lime"></i></div>'
-                       f'<pre><code>{html.escape(x)}</code></pre></div>')
+            lang, code = x
+            flush()
+            out.append(f'<figure class="code"><div class="code-head"><span>{LANGS.get(lang.lower(), lang or "Code")}</span></div>'
+                       f'<pre><code>{html.escape(code)}</code></pre></figure>')
+        elif t == 'figure':
+            fig += 1
+            flush()
+            out.append(figure_html(x[0], x[1], fig, wide))
+    flush()
     return '\n'.join(out)
 
 def reading_min(dek, blocks):
@@ -203,103 +161,157 @@ def reading_min(dek, blocks):
     for t, x in blocks:
         if t == 'list':
             words += sum(len(it.split()) for it in x)
-        else:
+        elif t == 'code':
+            words += len(x[1].split())
+        elif t != 'figure':
             words += len(str(x).split())
     return max(1, round(words / 200))
 
-def fmt_display(iso):
-    d = datetime.date.fromisoformat(iso)
-    return d.strftime('%b %Y').upper()
+def fmt_month(iso):
+    return datetime.date.fromisoformat(iso).strftime('%B %Y')
 
-# ---------- page templates ----------
-def head(title, desc, url, og_type='website'):
+def fmt_day(iso):
+    d = datetime.date.fromisoformat(iso)
+    return f'{d.day} {d.strftime("%B %Y")}'
+
+# ---------- page parts ----------
+def head(title, desc, url, og_type='website', image=OG_IMAGE, figures=False):
     d = html.escape(desc, quote=True)
     t = html.escape(title, quote=True)
-    return ('<!DOCTYPE html><html lang="en"><head>'
+    return ('<!doctype html><html lang="en" data-atmos="press"><head>'
             '<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">'
+            f'{THEME_EARLY}'
             f'<title>{t}</title>'
             f'<meta name="description" content="{d}">'
             f'<link rel="canonical" href="{url}">'
             f'<meta name="author" content="{AUTHOR}">'
-            '<meta name="theme-color" content="#0A0C0E">'
+            '<meta name="theme-color" content="#D1CBC1" media="(prefers-color-scheme: light)">'
+            '<meta name="theme-color" content="#121110" media="(prefers-color-scheme: dark)">'
             f'{FAVICON}'
+            '<link rel="alternate" type="application/rss+xml" title="Hasan Al-qaysi — Writing" href="/blog/rss.xml">'
             f'<meta property="og:type" content="{og_type}">'
             '<meta property="og:site_name" content="Hasan Al-qaysi">'
             f'<meta property="og:title" content="{t}">'
             f'<meta property="og:description" content="{d}">'
             f'<meta property="og:url" content="{url}">'
-            f'<meta property="og:image" content="{OG_IMAGE}">'
+            f'<meta property="og:image" content="{image}">'
             '<meta property="og:image:width" content="1200"><meta property="og:image:height" content="630">'
             '<meta name="twitter:card" content="summary_large_image">'
             f'<meta name="twitter:title" content="{t}">'
             f'<meta name="twitter:description" content="{d}">'
-            f'<meta name="twitter:image" content="{OG_IMAGE}">'
-            f'{FONTS}<style>{CSS}</style></head>')
+            f'<meta name="twitter:image" content="{image}">'
+            '<link rel="preload" href="/assets/fonts/newsreader-roman-latin.woff2" as="font" type="font/woff2" crossorigin>'
+            '<link rel="stylesheet" href="/assets/field.css">'
+            + ('<script src="/assets/js/figures.js" defer></script>' if figures else '')
+            + '<script src="/assets/js/light.js" defer></script><script src="/assets/js/theme.js" defer></script>'
+            '</head>')
 
+def nav_html(active):
+    def a(href, label, key):
+        cur = ' aria-current="page"' if key == active else ''
+        return f'<a href="{href}"{cur}>{label}</a>'
+    return ('<div class="backdrop" aria-hidden="true"><img src="/assets/img/art/backdrop-blur.webp" alt=""></div>'
+            '<div class="nav-wrap"><nav class="nav glass" aria-label="Primary">'
+            '<a class="name" href="/">Hasan Al-qaysi</a>'
+            + a('/#work', 'Work', 'work') + a('/blog/', 'Writing', 'writing') + a('/#contact', 'Contact', 'contact')
+            + THEME_BUTTON + '</nav></div>')
+
+FOOT = (f'<footer class="footer"><span>© {datetime.date.today().year} Hasan Al-qaysi</span>'
+        '<span><a href="/blog/">All writing</a> &nbsp; <a href="/blog/rss.xml">RSS</a></span></footer>')
+
+def art_html(p):
+    scene = p.get('scene')
+    if scene and os.path.exists(os.path.join(ROOT, 'assets', 'img', 'art', scene + '.webp')):
+        small = f'/assets/img/art/{scene}-800.webp' if os.path.exists(os.path.join(ROOT, 'assets', 'img', 'art', scene + '-800.webp')) else None
+        srcset = f' srcset="{small} 800w, /assets/img/art/{scene}.webp 1600w" sizes="(max-width: 900px) 100vw, 1200px"' if small else ''
+        return (f'<div class="article-art"><img src="/assets/img/art/{scene}.webp"{srcset} '
+                'alt="" width="1600" height="900" decoding="async" fetchpriority="high"></div>')
+    plate = p.get('plate')
+    if plate and os.path.exists(os.path.join(ROOT, 'assets', 'img', 'plates', plate + '.png')):
+        return (f'<div class="article-plate"><div class="plate-band" aria-hidden="true">'
+                f'<span class="dither" style="--src: url(\'/assets/img/plates/{plate}.png\');"></span></div></div>')
+    return ''
+
+# ---------- pages ----------
 def post_page(p):
-    blocks_html = render_blocks(p['blocks'])
-    tags = ''.join(f'<span class="chip">{html.escape(t)}</span>' for t in p['tags'])
+    h2s = [x for t, x in p['blocks'] if t == 'h2']
+    has_contents = len(h2s) >= 3
+    has_figures = any(t == 'figure' for t, _ in p['blocks'])
+    blocks_html = render_blocks(p['blocks'], wide=has_contents)
+    when = f'<time datetime="{p["date"]}">{fmt_day(p["date"])}</time><span>{p["read"]} min read</span>'
+    if p['tags']:
+        when += '<span>' + ' · '.join(html.escape(TAGS.get(t, t.replace('-', ' ').capitalize())) for t in p['tags']) + '</span>'
     ld = {
         "@context": "https://schema.org", "@type": "BlogPosting",
         "headline": p['title'], "description": p['dek'],
         "datePublished": p['date'], "url": p['url'],
         "author": {"@type": "Person", "name": AUTHOR, "url": SITE + "/"},
-        "image": OG_IMAGE,
+        "image": p['image'],
     }
-    import json
-    ldjson = '<script type="application/ld+json">' + json.dumps(ld) + '</script>'
+    main = (f'<article class="article-main{" with-margin" if has_contents else ""}">'
+            + blocks_html
+            + '<aside class="author" aria-label="About the author">'
+            f'<p>Hasan Al-qaysi builds AI features and automation for small teams. Questions, or a project in mind? <a href="mailto:{EMAIL}">{EMAIL}</a></p>'
+            f'<a class="button button--solid" href="mailto:{EMAIL}">Email me</a></aside>'
+            '</article>')
+    if has_contents:
+        toc = ''.join(f'<li><a href="#{slugify(h)}">{inline(h)}</a></li>' for h in h2s)
+        layout = f'<div class="article-grid"><details class="contents" open><summary>Contents</summary><ol>{toc}</ol></details>{main}</div>'
+    else:
+        layout = f'<div class="article-solo">{main}</div>'
+    defs = bun('tools/diagram.ts', '--defs').strip() if has_figures else ''
     body = (
-        '<body>'
-        '<div class="progress"><div id="pbar"></div></div>'
-        '<div class="grid-bg"></div>'
-        + nav_html('writing')
-        + '<article class="art reveal">'
-        + '<a href="/blog" class="back">&larr; ALL WRITING</a>'
-        + f'<div class="meta"><span>{p["display"]}</span><span class="sep">/</span><span>{p["read"]} MIN READ</span></div>'
+        '<body>' + defs + nav_html('writing')
+        + '<main class="page">'
+        + art_html(p)
+        + '<header class="article-head">'
+        + f'<p class="when">{when}</p>'
         + f'<h1>{html.escape(p["title"])}</h1>'
         + f'<p class="dek">{html.escape(p["dek"])}</p>'
-        + (f'<div class="tags">{tags}</div>' if tags else '')
-        + '<div class="rule"></div>'
-        + blocks_html
-        + '<div class="rule" style="margin:48px 0 28px"></div>'
-        + '<div class="art-foot"><a href="/blog" class="btn">&larr; All writing</a>'
-        + '<a href="mailto:hasanaqeel38@gmail.com" class="reply">Reply by email &rarr;</a></div>'
-        + '</article>'
-        + FOOT + ldjson + PROGRESS_JS + '</body></html>'
+        + f'<p class="by">By {AUTHOR}</p>'
+        + '</header>'
+        + layout
+        + FOOT + '</main>'
+        + '<script type="application/ld+json">' + json.dumps(ld) + '</script>'
+        + '</body></html>'
     )
-    return head(p['title'] + ' — ' + AUTHOR, p['dek'], p['url'], 'article') + body
+    return head(p['title'] + ' — ' + AUTHOR, p['dek'], p['url'], 'article', p['image'], has_figures) + body
 
 def listing_page(posts):
-    rows = []
-    for i, p in enumerate(posts):
-        pill = '<span class="pill">LATEST</span>' if i == 0 else ''
-        tags = ''.join(f'<span class="chip">{html.escape(t)}</span>' for t in p['tags'])
-        rows.append(
-            f'<a class="row reveal" href="/blog/{p["slug"]}">'
-            f'<div class="meta"><span>{p["display"]}</span><span class="sep">/</span><span>{p["read"]} MIN READ</span>{pill}</div>'
-            f'<h2 class="row-title">{html.escape(p["title"])}</h2>'
-            f'<p class="row-dek">{html.escape(p["dek"])}</p>'
-            f'<div class="row-foot">{tags}<span class="read">Read &rarr;</span></div>'
-            f'</a>'
-        )
+    rows = ''.join(
+        f'<li class="post"><h3><a href="/blog/{p["slug"]}/">{html.escape(p["title"])}</a></h3>'
+        f'<time datetime="{p["date"]}">{fmt_month(p["date"])}</time>'
+        f'<p class="dek">{html.escape(p["dek"])}</p></li>'
+        for p in posts)
     body = (
-        '<body>'
-        '<div class="grid-bg"></div>'
-        + nav_html('writing')
-        + '<main class="list-wrap">'
-        + '<div class="list-head reveal">'
-        + '<div class="eyebrow"><i></i>WRITING</div>'
-        + '<h1>Notes from<br>the build.</h1>'
-        + '<p>Short, specific writing on automation, AI features, and shipping systems that keep running. No buzzwords — just what worked and what I’d do again.</p>'
-        + '</div>'
-        + '<div class="rows">' + ''.join(rows) + '<div class="row-end"></div></div>'
-        + '</main>' + FOOT + '</body></html>'
+        '<body>' + nav_html('writing')
+        + '<main class="page">'
+        + '<header class="hero" style="padding-bottom: var(--s-7);">'
+        + '<h1 class="display rise" style="--i: 0">Writing</h1>'
+        + '<p class="lead rise" style="--i: 1; margin-top: var(--s-5); max-width: 46ch;">Short, specific notes on AI features, automation and shipping systems that keep running. What worked, and what I’d do again.</p>'
+        + '</header>'
+        + '<div class="banner"><img src="/assets/img/art/cave.webp" srcset="/assets/img/art/cave-800.webp 800w, /assets/img/art/cave.webp 1600w" '
+          'sizes="(max-width: 900px) 100vw, 1200px" style="object-position: 50% 70%;" '
+          'alt="An engraving of a lone figure at the mouth of a cave, looking out at a sunrise over a river valley" decoding="async"></div>'
+        + f'<ol class="posts">{rows}</ol>'
+        + FOOT + '</main></body></html>'
     )
     return head('Writing — ' + AUTHOR,
-                'Short, specific writing on automation, AI features, and shipping production systems. By Hasan Al-qaysi.',
+                'Short, specific writing on AI features, automation and shipping production systems. By Hasan Al-qaysi.',
                 SITE + '/blog/') + body
 
-def build():
+def ensure_card(p, force):
+    """Each post's social card: tools/card.ts with the post's plate, made once and kept."""
+    out = os.path.join(BLOG_DIR, p['slug'], 'card.png')
+    plate = p.get('plate')
+    if not plate:
+        return OG_IMAGE
+    if force or not os.path.exists(out):
+        bun('tools/card.ts', '--title', p['title'], '--kicker', 'Writing · ' + fmt_month(p['date']),
+            '--plate', f'assets/img/plates/{plate}.png', '--out', out)
+    return f'{SITE}/blog/{p["slug"]}/card.png'
+
+def build(force_cards=False):
     files = sorted(glob.glob(os.path.join(POSTS_DIR, '*.md')))
     posts = []
     for f in files:
@@ -308,20 +320,21 @@ def build():
         blocks = parse_blocks(raw)
         posts.append({
             'slug': slug, 'title': meta['title'], 'dek': meta.get('dek', ''),
-            'date': meta['date'], 'display': fmt_display(meta['date']),
-            'tags': meta.get('tags', []), 'blocks': blocks,
+            'date': meta['date'], 'tags': meta.get('tags', []), 'blocks': blocks,
+            'scene': meta.get('scene'), 'plate': meta.get('plate'),
             'read': reading_min(meta.get('dek', ''), blocks),
-            'url': f'{SITE}/blog/{slug}',
+            'url': f'{SITE}/blog/{slug}',  # no trailing slash: it is each post's canonical URL and RSS guid
         })
     posts.sort(key=lambda p: p['date'], reverse=True)
 
-    # listing
-    open(os.path.join(BLOG_DIR, 'index.html'), 'w', encoding='utf-8').write(listing_page(posts))
-    # posts
+    # posts (cards first: the page's OG tags point at them)
     for p in posts:
         d = os.path.join(BLOG_DIR, p['slug'])
         os.makedirs(d, exist_ok=True)
+        p['image'] = ensure_card(p, force_cards)
         open(os.path.join(d, 'index.html'), 'w', encoding='utf-8').write(post_page(p))
+    # listing
+    open(os.path.join(BLOG_DIR, 'index.html'), 'w', encoding='utf-8').write(listing_page(posts))
     # rss
     items = ''.join(
         f'<item><title>{sx.escape(p["title"])}</title><link>{p["url"]}</link>'
@@ -330,7 +343,7 @@ def build():
         for p in posts)
     rss = ('<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel>'
            f'<title>Hasan Al-qaysi — Writing</title><link>{SITE}/blog/</link>'
-           '<description>Short, specific writing on automation, AI features, and shipping systems.</description>'
+           '<description>Short, specific writing on AI features, automation and shipping systems.</description>'
            f'<language>en</language>{items}</channel></rss>')
     open(os.path.join(BLOG_DIR, 'rss.xml'), 'w', encoding='utf-8').write(rss)
     # sitemap
@@ -345,4 +358,4 @@ def build():
     print('Wrote blog/index.html, blog/rss.xml, sitemap.xml')
 
 if __name__ == '__main__':
-    build()
+    build(force_cards='--cards' in sys.argv)

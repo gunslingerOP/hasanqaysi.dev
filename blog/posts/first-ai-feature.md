@@ -3,6 +3,8 @@ title: Shipping your first AI feature without losing the plot
 date: 2026-05-15
 dek: Extraction, not magic. Treat the model like an unreliable function and wrap it accordingly.
 tags: [ai, llm]
+plate: sphere-dots
+scene: forest-dissolve
 ---
 
 The fastest way to ruin an AI feature is to treat the model like magic. It isn't. It's an unreliable function: useful, occasionally wrong, and best wrapped in the same guardrails you'd give any external call.

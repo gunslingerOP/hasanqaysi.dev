@@ -1,0 +1,87 @@
+{
+  "type": "flow",
+  "id": "fig-pipeline",
+  "title": "The attribution pipeline, seven stages",
+  "desc": "Left to right: OAuth and token watch; ingest to our own copy; LLM extraction (dashed, the model); validate at the boundary (highlighted); dedup to canonical; confidence score; the report. Failures drop to a reject log.",
+  "nodes": [
+    {
+      "label": [
+        "OAuth +",
+        "token watch"
+      ],
+      "say": "OAuth into the CRM, store the tokens, refresh them before they expire."
+    },
+    {
+      "label": [
+        "Ingest to",
+        "our own copy"
+      ],
+      "say": "Pull deals and engagements into our own tables; their CRM stays the source of truth for their data."
+    },
+    {
+      "label": [
+        "LLM",
+        "extraction"
+      ],
+      "kind": "ghost",
+      "say": "The model reads each deal and returns plausible data: sometimes right, sometimes invented."
+    },
+    {
+      "label": [
+        "Validate at",
+        "the boundary"
+      ],
+      "kind": "accent",
+      "say": "Every response is schema-validated. What does not parse is rejected and recorded."
+    },
+    {
+      "label": [
+        "Dedup to",
+        "canonical"
+      ],
+      "say": "Ten names for one asset collapse onto one canonical record."
+    },
+    {
+      "label": [
+        "Confidence",
+        "score"
+      ],
+      "say": "Every link carries a confidence score instead of pretending to be certain."
+    },
+    {
+      "label": [
+        "The",
+        "report"
+      ],
+      "say": "The report shows high-confidence matches by default; the grey zone stays reviewable."
+    }
+  ],
+  "groups": [
+    {
+      "from": 2,
+      "to": 2,
+      "label": "The model",
+      "labelAt": "bottom"
+    },
+    {
+      "from": 3,
+      "to": 6,
+      "label": "Downstream: where the trust comes from"
+    }
+  ],
+  "branch": {
+    "from": 3,
+    "label": "Reject log",
+    "edge": "fails the schema",
+    "note": "visible, countable, reviewable"
+  },
+  "notes": [
+    {
+      "text": "an unreliable function",
+      "under": 2
+    },
+    {
+      "text": "The LLM is one stage out of seven."
+    }
+  ]
+}

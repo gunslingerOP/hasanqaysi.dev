@@ -3,6 +3,8 @@ title: Event-driven on AWS serverless, from zero
 date: 2026-04-15
 dek: SQS, Lambda, DynamoDB — a mental model that scales without babysitting.
 tags: [aws, backend]
+plate: cylinder-dots
+scene: cow-mountain
 ---
 
 Serverless gets a reputation for being fiddly. Most of that pain comes from skipping the mental model and reaching straight for the console.

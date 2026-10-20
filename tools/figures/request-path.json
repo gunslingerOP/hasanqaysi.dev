@@ -1,0 +1,95 @@
+{
+  "type": "sequence",
+  "id": "fig-request-path",
+  "title": "Request path: who talks to whom",
+  "desc": "The CRM and the model API are outside systems (dashed). Ingest pulls deals and notes, writes our copy; the extractor reads messages, asks the model, gets plausible JSON back and hands it to the validator; valid rows are inserted, failures recorded.",
+  "lanes": [
+    {
+      "name": "The CRM",
+      "kind": "ghost"
+    },
+    {
+      "name": "Ingest"
+    },
+    {
+      "name": "Store"
+    },
+    {
+      "name": "Extractor"
+    },
+    {
+      "name": "Model API",
+      "kind": "ghost"
+    },
+    {
+      "name": "Validator",
+      "kind": "accent"
+    },
+    {
+      "name": "Tables"
+    }
+  ],
+  "messages": [
+    {
+      "from": 1,
+      "to": 0,
+      "label": "Pull deals + notes",
+      "say": "Ingest pulls deals and notes from the CRM."
+    },
+    {
+      "from": 1,
+      "to": 2,
+      "label": "Write our copy",
+      "say": "It writes our own copy, so every later step can retry and replay."
+    },
+    {
+      "from": 3,
+      "to": 2,
+      "label": "Read messages",
+      "say": "The extractor reads a deal's messages from our store."
+    },
+    {
+      "from": 3,
+      "to": 4,
+      "label": "Extract mentions",
+      "say": "It asks the model which assets were mentioned."
+    },
+    {
+      "from": 4,
+      "to": 3,
+      "label": "Plausible JSON",
+      "kind": "dashed",
+      "say": "The model answers with plausible JSON: fluent, confident, sometimes wrong."
+    },
+    {
+      "from": 3,
+      "to": 5,
+      "label": "safeParse()",
+      "kind": "accent",
+      "say": "The answer crosses the boundary: safeParse() decides."
+    },
+    {
+      "from": 5,
+      "to": 6,
+      "label": "Insert rows",
+      "say": "Valid rows are inserted."
+    },
+    {
+      "from": 5,
+      "to": 6,
+      "label": "Record reject",
+      "kind": "dashed",
+      "say": "Failures are recorded as rejects: visible, countable, reviewable."
+    }
+  ],
+  "notes": [
+    {
+      "text": [
+        "fluent, confident —",
+        "sometimes wrong"
+      ],
+      "nearMessage": 4
+    }
+  ],
+  "footnote": "Their CRM stays the source of truth for their data. Everything after ingest is ours to retry, replay and inspect."
+}

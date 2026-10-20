@@ -1,0 +1,38 @@
+{
+  "type": "fanin",
+  "id": "fig-one-asset",
+  "title": "One asset, four names",
+  "desc": "Four raw mention strings converge on one canonical asset record. Counts are illustrative.",
+  "group": "Raw mentions",
+  "inputs": [
+    {
+      "label": "“the ROI deck”",
+      "count": "×14",
+      "say": "One rep writes “the ROI deck”."
+    },
+    {
+      "label": "“ROI deck”",
+      "count": "×9",
+      "say": "Another writes “ROI deck”."
+    },
+    {
+      "label": "“that ROI presentation”",
+      "count": "×4",
+      "say": "A third calls it “that ROI presentation”."
+    },
+    {
+      "label": "“the ROI one”",
+      "count": "×3",
+      "say": "Someone else writes “the ROI one”. Counted as strings, that is four assets."
+    }
+  ],
+  "output": {
+    "label": "ROI deck",
+    "small": "canonical asset · 30 mentions",
+    "say": "Four strings, one asset: first-in wins on the canonical name."
+  },
+  "notes": [
+    "four strings, one asset",
+    "first-in wins on the canonical name"
+  ]
+}

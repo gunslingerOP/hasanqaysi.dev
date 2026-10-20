@@ -3,6 +3,8 @@ title: Make a small team move like a big one
 date: 2026-06-15
 dek: The repetitive work is a hidden tax on every team. Here is how I stop paying it.
 tags: [automation, leverage]
+plate: stack-dots
+scene: rider-near
 ---
 
 Every team I've joined has the same hidden line item: the work nobody decided to do, but everybody does anyway. Copy this into that. Export the report. Chase the follow-up. It never shows up on a roadmap, and it quietly eats the week.
